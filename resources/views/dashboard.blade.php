@@ -11,6 +11,15 @@
                 <div class="p-6 text-gray-900">
                     {{ __("You're logged in!") }}
                 </div>
+                
+                <div class="flex items-center space-x-4">
+                    <img src="{{ Auth::user()->profile_picture_url }}" alt="Profile Picture" class="h-16 w-16 rounded-full">
+                    <div>
+                        <h2 class="font-semibold text-xl text-gray-800">{{ Auth::user()->name }}</h2>
+                        <p class="text-gray-500">{{ Auth::user()->email }}</p>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>

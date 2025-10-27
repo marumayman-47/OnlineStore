@@ -21,7 +21,19 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'profile_picture',
     ];
+
+    // get full image URL
+        public function getProfilePictureUrlAttribute()
+    {
+        if ($this->profile_picture && \Storage::disk('public')->exists($this->profile_picture)) {
+            return asset('storage/' . $this->profile_picture);
+        }
+
+        // Default fallback image
+        return asset('images/default-avatar.png');
+    }
 
     /**
      * The attributes that should be hidden for serialization.
