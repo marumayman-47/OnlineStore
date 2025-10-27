@@ -77,6 +77,9 @@ class ProductController extends Controller
 
         // $request
         $validated = $request->validated();
+        $validated['user_id'] = auth()->id();
+        $product = Product::create($validated);
+
 
         // defaults
         $validated['stock_quantity'] = $validated['stock_quantity'] ?? 0;
