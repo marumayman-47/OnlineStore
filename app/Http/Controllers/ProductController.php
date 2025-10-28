@@ -20,8 +20,14 @@ class ProductController extends Controller
         $minPrice = $request->query('min_price');
         $maxPrice = $request->query('max_price');
         $sort = $request->query('sort');
+        $showTrashed = $request->query('show_trashed');
 
         $query = Product::with(['category', 'comments']);
+
+        // Show trashed items if requested (admin/manager only)
+        if ($showTrashed && auth()->check() && auth()->user()->hasAnyRole(['admin', 'manager'])) {
+            $query->onlyTrashed();
+        }
 
         // Apply filters
         $query->when($search, fn($q) =>
@@ -180,5 +186,43 @@ class ProductController extends Controller
                 ->route('products.index')
                 ->with('error', 'Failed to delete product: ' . $e->getMessage());
         }
+    }
+
+    // Protected: Restore soft-deleted product
+    public function restore($id)
+    {
+        // Only admin and managers can restore
+        if (!auth()->user()->hasAnyRole(['admin', 'manager'])) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $product = Product::onlyTrashed()->findOrFail($id);
+        $product->restore();
+
+        return redirect()
+            ->route('products.index')
+            ->with('success', 'Product restored successfully.');
+    }
+
+    // Protected: Permanently delete product
+    public function forceDelete($id)
+    {
+        // Only admins can permanently delete
+        if (!auth()->user()->isAdmin()) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $product = Product::onlyTrashed()->findOrFail($id);
+        
+        // Delete image if exists
+        if (!empty($product->image) && Storage::disk('public')->exists($product->image)) {
+            Storage::disk('public')->delete($product->image);
+        }
+
+        $product->forceDelete();
+
+        return redirect()
+            ->route('products.index', ['show_trashed' => 1])
+            ->with('success', 'Product permanently deleted.');
     }
 }

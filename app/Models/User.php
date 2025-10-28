@@ -2,54 +2,27 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var list<string>
-     */
     protected $fillable = [
         'name',
         'email',
         'password',
         'profile_picture',
+        'role',
     ];
 
-    // get full image URL
-        public function getProfilePictureUrlAttribute()
-    {
-        if ($this->profile_picture && \Storage::disk('public')->exists($this->profile_picture)) {
-            return asset('storage/' . $this->profile_picture);
-        }
-
-        // Default fallback image
-        return asset('images/default-avatar.png');
-    }
-
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
     ];
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
@@ -58,9 +31,44 @@ class User extends Authenticatable
         ];
     }
 
-        public function products()
+    // Get full image URL
+    public function getProfilePictureUrlAttribute()
+    {
+        if ($this->profile_picture && \Storage::disk('public')->exists($this->profile_picture)) {
+            return asset('storage/' . $this->profile_picture);
+        }
+
+        return asset('images/default-avatar.png');
+    }
+
+    public function products()
     {
         return $this->hasMany(\App\Models\Product::class);
     }
 
+    // Role helper methods
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
+    }
+
+    public function isManager(): bool
+    {
+        return $this->role === 'manager';
+    }
+
+    public function isClient(): bool
+    {
+        return $this->role === 'client';
+    }
+
+    public function hasRole(string $role): bool
+    {
+        return $this->role === $role;
+    }
+
+    public function hasAnyRole(array $roles): bool
+    {
+        return in_array($this->role, $roles);
+    }
 }

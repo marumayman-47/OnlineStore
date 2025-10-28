@@ -59,6 +59,7 @@ class Kernel extends HttpKernel
 
         
         // my custom middleware
+        'role' => \App\Http\Middleware\RoleMiddleware::class,
         'check.product.limit' => \App\Http\Middleware\CheckProductLimit::class,
     ];
 }

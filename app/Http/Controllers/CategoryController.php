@@ -8,14 +8,22 @@ use Illuminate\Support\Facades\Storage;
 use App\Http\Requests\CategoryStoreRequest;
 use App\Http\Requests\CategoryUpdateRequest;
 
-
 class CategoryController extends Controller
 {
     /** List categories */
-    public function index()
+    public function index(Request $request)
     {
-        $categories = Category::latest()->paginate(6);
-        return view('categories.index', compact('categories'));
+        $showTrashed = $request->query('show_trashed');
+        
+        $query = Category::latest();
+
+        // Show trashed items if requested (admin/manager only)
+        if ($showTrashed && auth()->check() && auth()->user()->hasAnyRole(['admin', 'manager'])) {
+            $query->onlyTrashed();
+        }
+
+        $categories = $query->paginate(6);
+        return view('categories.index', compact('categories', 'showTrashed'));
     }
 
     /** Show create form */
@@ -25,15 +33,8 @@ class CategoryController extends Controller
     }
 
     /** Store category */
-    public function store(CategoryStoreRequest  $request)
+    public function store(CategoryStoreRequest $request)
     {
-        // $validated = $request->validate([
-        //     'name' => 'required|string|max:255|unique:categories,name',
-        //     'description' => 'nullable|string',
-        //     'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
-        //     'is_active' => 'boolean'
-        // ]);
-
         $validated = $request->validated();
 
         if ($request->hasFile('image')) {
@@ -59,15 +60,8 @@ class CategoryController extends Controller
     }
 
     /** Update category */
-    public function update(CategoryUpdateRequest  $request, Category $category)
+    public function update(CategoryUpdateRequest $request, Category $category)
     {
-        // $validated = $request->validate([
-        //     'name' => 'required|string|max:255|unique:categories,name,' . $category->id,
-        //     'description' => 'nullable|string',
-        //     'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
-        //     'is_active' => 'boolean'
-        // ]);
-
         $validated = $request->validated();
 
         if ($request->hasFile('image')) {
@@ -77,26 +71,57 @@ class CategoryController extends Controller
             $validated['image'] = $request->file('image')->store('categories', 'public');
         }
 
-        // $category->update($validated);
         try {
-        $category->update($validated);
-        } 
-        catch (\Exception $e) {
-        \Log::error('Category update failed: '.$e->getMessage());
-        return redirect()->back()->withInput()->with('error', 'Failed to update category. Please try again.');
+            $category->update($validated);
+        } catch (\Exception $e) {
+            \Log::error('Category update failed: '.$e->getMessage());
+            return redirect()->back()->withInput()->with('error', 'Failed to update category. Please try again.');
         }
 
         return redirect()->route('categories.index')->with('success', 'Category updated successfully!');
     }
 
-    /** Delete category */
+    /** Soft delete category */
     public function destroy(Category $category)
     {
+        $category->delete(); // Soft delete
+        return redirect()->route('categories.index')->with('success', 'Category deleted successfully!');
+    }
+
+    /** Restore soft-deleted category */
+    public function restore($id)
+    {
+        // Only admin and managers can restore
+        if (!auth()->user()->hasAnyRole(['admin', 'manager'])) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $category = Category::onlyTrashed()->findOrFail($id);
+        $category->restore();
+
+        return redirect()
+            ->route('categories.index')
+            ->with('success', 'Category restored successfully!');
+    }
+
+    /** Permanently delete category */
+    public function forceDelete($id)
+    {
+        // Only admins can permanently delete
+        if (!auth()->user()->isAdmin()) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $category = Category::onlyTrashed()->findOrFail($id);
+        
         if ($category->image && Storage::disk('public')->exists($category->image)) {
             Storage::disk('public')->delete($category->image);
         }
 
-        $category->delete();
-        return redirect()->route('categories.index')->with('success', 'Category deleted successfully!');
+        $category->forceDelete();
+
+        return redirect()
+            ->route('categories.index', ['show_trashed' => 1])
+            ->with('success', 'Category permanently deleted!');
     }
 }
