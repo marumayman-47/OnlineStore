@@ -10,10 +10,9 @@ use Illuminate\Support\Str;
 use App\Http\Requests\ProductStoreRequest;
 use App\Http\Requests\ProductUpdateRequest;
 
-
 class ProductController extends Controller
 {
-    // List products with search, filters, sort, and pagination
+    // Public: List products with search, filters, sort, and pagination
     public function index(Request $request)
     {
         $search = $request->query('search');
@@ -22,13 +21,13 @@ class ProductController extends Controller
         $maxPrice = $request->query('max_price');
         $sort = $request->query('sort');
 
-        $products = Product::with('comments')->get();
-        $query = Product::with('category');
+        $query = Product::with(['category', 'comments']);
 
+        // Apply filters
         $query->when($search, fn($q) =>
             $q->where('name', 'like', "%{$search}%")
-        )->when($request->category_id, fn($q) =>
-            $q->where('category_id', $request->category_id)
+        )->when($categoryId, fn($q) =>
+            $q->where('category_id', $categoryId)
         )->when($minPrice, fn($q) =>
             $q->where('price', '>=', $minPrice)
         )->when($maxPrice, fn($q) =>
@@ -44,68 +43,57 @@ class ProductController extends Controller
         );
 
         $products = $query->paginate(8)->withQueryString();
-        $categories = \App\Models\Category::where('is_active', true)->orderBy('name')->get();
+        $categories = Category::where('is_active', true)->orderBy('name')->get();
 
-        // If AJAX (for live search), return partial HTML only
+        // AJAX request - return partial HTML only
         if ($request->ajax()) {
             return view('products.partials.list', compact('products'))->render();
         }
 
         return view('products.index', compact('products', 'categories'));
-        // return view('products.index', compact('products'));
     }
 
-    // Show create form
+    // Protected: Show create form
     public function create()
     {
-        $categories = \App\Models\Category::where('is_active', true)->orderBy('name')->get();
+        // This route is already protected by auth middleware
+        $categories = Category::where('is_active', true)->orderBy('name')->get();
         return view('products.create', compact('categories'));
     }
 
-    // Store new product
-    public function store(ProductStoreRequest  $request)
+    // Protected: Store new product
+    public function store(ProductStoreRequest $request)
     {
-        // $validated = $request->validate([
-        //     'name'           => 'required|string|max:255',
-        //     'description'    => 'nullable|string',
-        //     'price'          => 'required|numeric|min:0',
-        //     'category_id'    => 'required|exists:categories,id',
-        //     'stock_quantity' => 'nullable|integer|min:0',
-        //     'is_active'      => 'sometimes|boolean',
-        //     'image'          => 'nullable|image|mimes:jpg,jpeg,png,gif|max:2048|dimensions:max_width=2000,max_height=2000',
-        // ]);
-
-        // $request
         $validated = $request->validated();
+        
+        // Associate with authenticated user
         $validated['user_id'] = auth()->id();
-        $product = Product::create($validated);
-
-
-        // defaults
+        
+        // Defaults
         $validated['stock_quantity'] = $validated['stock_quantity'] ?? 0;
         $validated['is_active'] = $request->boolean('is_active', true);
 
-        // handle image upload with unique name
-        if ($request->hasFile('image')) 
-        {
+        // Handle image upload with unique name
+        if ($request->hasFile('image')) {
             $file = $request->file('image');
-            $filename = time().'_'.$file->getClientOriginalName();
+            $filename = time() . '_' . $file->getClientOriginalName();
             $file->storeAs('products', $filename, 'public');
-            $validated['image'] = 'products/'.$filename; // save folder + filename in DB
+            $validated['image'] = 'products/' . $filename;
         }
 
-        // Create product
         $product = Product::create($validated);
 
-        return redirect()->route('products.index')->with('success', ' Product created successfully.');
+        return redirect()
+            ->route('products.index')
+            ->with('success', 'Product created successfully.');
     }
 
-    // Show single product
+    // Public: Show single product
     public function show(Product $product)
     {
-        $product->load('category');
+        $product->load('category', 'comments');
 
-        // If ?edit={id} in the URL, set it in the session
+        // Handle edit mode for comments
         if (request()->has('edit')) {
             session(['edit_comment_id' => request('edit')]);
         } else {
@@ -115,59 +103,52 @@ class ProductController extends Controller
         return view('products.show', compact('product'));
     }
 
-    // Show edit form
+    // Protected: Show edit form
     public function edit(Product $product)
     {
-        $categories = \App\Models\Category::all();
+        // Check if user owns this product
+        if (auth()->id() !== $product->user_id && !auth()->user()->is_admin) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $categories = Category::all();
         return view('products.edit', compact('product', 'categories'));
     }
 
-    // Update product
-    public function update(ProductUpdateRequest  $request, Product $product)
+    // Protected: Update product
+    public function update(ProductUpdateRequest $request, Product $product)
     {
-        // $validated = $request->validate([
-        //     'name'           => 'required|string|max:255',
-        //     'description'    => 'nullable|string',
-        //     'price'          => 'required|numeric|min:0',
-        //     'category_id'    => 'required|exists:categories,id',
-        //     'stock_quantity' => 'nullable|integer|min:0',
-        //     'is_active'      => 'sometimes|boolean',
-        //     'image'          => 'nullable|image|mimes:jpg,jpeg,png,gif|max:2048|dimensions:max_width=2000,max_height=2000',
-        // ]);
+        // Authorization check
+        if (auth()->id() !== $product->user_id && !auth()->user()->is_admin) {
+            abort(403, 'Unauthorized action.');
+        }
 
         $validated = $request->validated();
 
-        // Set defaults
         $validated['stock_quantity'] = $validated['stock_quantity'] ?? $product->stock_quantity ?? 0;
         $validated['is_active'] = $request->boolean('is_active', $product->is_active);
-        // $validated['category_id'] = $request->category_id;
 
-        // Handle image upload and safely replace old image
-        if ($request->hasFile('image')) 
-        {
-            // Delete old image if it exists
+        // Handle image upload
+        if ($request->hasFile('image')) {
+            // Delete old image
             if ($product->image && Storage::disk('public')->exists($product->image)) {
-            Storage::disk('public')->delete($product->image);
-        }
+                Storage::disk('public')->delete($product->image);
+            }
 
-            // Store new image with a unique name
             $file = $request->file('image');
             $filename = Str::uuid() . '.' . $file->getClientOriginalExtension();
             $file->storeAs('products', $filename, 'public');
-            $validated['image'] = 'products/'.$filename; // store folder + filename in DB
+            $validated['image'] = 'products/' . $filename;
         }
 
-        
-        // Update model
-        //$product->update($validated);
-
         try {
-        $product->update($validated);
-        } 
-        catch (\Exception $e) {
-        
-        \Log::error('Product update failed: '.$e->getMessage());
-        return redirect()->back()->withInput()->with('error', 'Failed to update product. Please try again.');
+            $product->update($validated);
+        } catch (\Exception $e) {
+            \Log::error('Product update failed: ' . $e->getMessage());
+            return redirect()
+                ->back()
+                ->withInput()
+                ->with('error', 'Failed to update product. Please try again.');
         }
 
         return redirect()
@@ -175,27 +156,29 @@ class ProductController extends Controller
             ->with('success', 'Product updated successfully.');
     }
 
-    // Delete product and its image
+    // Protected: Delete product
     public function destroy(Product $product)
     {
+        // Authorization check
+        if (auth()->id() !== $product->user_id && !auth()->user()->is_admin) {
+            abort(403, 'Unauthorized action.');
+        }
+
         try {
-            // Delete image if it exists in storage
+            // Delete image if exists
             if (!empty($product->image) && Storage::disk('public')->exists($product->image)) {
                 Storage::disk('public')->delete($product->image);
             }
 
-            // Delete product record
             $product->delete();
 
             return redirect()
                 ->route('products.index')
                 ->with('success', 'Product deleted successfully.');
-        } 
-        catch (\Exception $e) {
-            // handle unexpected errors gracefully
+        } catch (\Exception $e) {
             return redirect()
                 ->route('products.index')
-                ->with('error', ' Failed to delete product: ' . $e->getMessage());
+                ->with('error', 'Failed to delete product: ' . $e->getMessage());
         }
     }
 }

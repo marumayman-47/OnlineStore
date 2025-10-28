@@ -11,9 +11,16 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('products', function (Blueprint $table) {
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete()->after('id');
-        });
+        // Check if user_id column doesn't exist before adding
+        if (!Schema::hasColumn('products', 'user_id')) {
+            Schema::table('products', function (Blueprint $table) {
+                $table->foreignId('user_id')
+                      ->nullable()
+                      ->after('id')
+                      ->constrained()
+                      ->nullOnDelete();
+            });
+        }
     }
 
     /**
