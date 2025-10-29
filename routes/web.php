@@ -48,7 +48,7 @@ Route::middleware(['auth'])->group(function () {
 
 // Dashboard - redirects to products
 Route::get('/dashboard', function () {
-    return redirect()->route('products.index');
+    return view('dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 // Profile routes from Breeze
